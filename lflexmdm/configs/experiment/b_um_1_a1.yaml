@@ -1,0 +1,10 @@
+# @package _global_
+global_flags:
+  DEBUG_FIX_B_UM: true
+
+loss:
+  regularizer_weight: 1.0
+
+global_components:
+  noise_schedule:
+    a_min: 1.0
