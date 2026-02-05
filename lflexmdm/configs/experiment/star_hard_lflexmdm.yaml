@@ -21,10 +21,13 @@ schedule_type: simplified-kuma
 predictor:
   _target_: lflexmdm.predictor_tau_leaping_kuma.TauLeapingPredictor
   max_steps: 500
+  top_k: 1
+  top_p: null
+  confidence: null
 
 loss:
   _target_: lflexmdm.loss_flexmdm_kuma.LFlexMDMLoss
-  regularizer_weight: 100.0
+  regularizer_weight: 1.0
 
 datamodule:
   print_batch_fn: lflexmdm.datamodule_flexmdm.print_batch_flexmdm

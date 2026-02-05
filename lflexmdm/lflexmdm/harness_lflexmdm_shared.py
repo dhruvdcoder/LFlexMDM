@@ -1,8 +1,8 @@
 """
-Harness for FlexMDM with shared transformer backbone and LoRA.
+Harness for FlexMDM with shared transformer backbone.
 
 This harness extends FlexMDMVariationalHarness to support a shared backbone
-between the main model (unfrozen) and auxiliary model (frozen + LoRA).
+between the main model and auxiliary model (both receive training signals).
 """
 
 from typing import Dict, Generator, Literal, Optional, Tuple, Union
@@ -26,9 +26,9 @@ class FlexMDMSharedBackboneHarness(FlexMDMVariationalHarness):
     1. Instantiates a shared backbone
     2. Passes the backbone to both main model and aux model
     3. Configures optimizers with proper parameter groups:
-       - Backbone params (updated by main model gradients only)
+       - Backbone params (updated by both main and aux model gradients)
        - Main model head params
-       - Aux model LoRA + head params
+       - Aux model head params
     """
 
     backbone: nn.Module
@@ -61,12 +61,6 @@ class FlexMDMSharedBackboneHarness(FlexMDMVariationalHarness):
             logger.info(
                 f"Instantiated aux model with {sum(p.numel() for p in self.aux_model.parameters()):,} total parameters"
             )
-            # Log LoRA parameters specifically
-            if getattr(self.aux_model, "lora_stack", None) is not None:
-                lora_params = sum(
-                    p.numel() for p in self.aux_model.lora_stack.parameters()
-                )
-                logger.info(f"  - LoRA parameters: {lora_params:,}")
         else:
             self.aux_model = None
 
@@ -98,8 +92,8 @@ class FlexMDMSharedBackboneHarness(FlexMDMVariationalHarness):
         2. Backbone params without weight decay (biases, norms)
         3. Main model head params with weight decay
         4. Main model head params without weight decay
-        5. Aux model LoRA + head params with weight decay
-        6. Aux model LoRA + head params without weight decay
+        5. Aux model head params with weight decay
+        6. Aux model head params without weight decay
         """
         partial_optimizer = hydra.utils.instantiate(
             self.config.optimizer, _partial_=True
@@ -147,7 +141,7 @@ class FlexMDMSharedBackboneHarness(FlexMDMVariationalHarness):
                 {"params": main_params_without_wd, "weight_decay": 0.0}
             )
 
-        # 3. Aux model LoRA + head parameters (excludes backbone via get_named_params_*)
+        # 3. Aux model head parameters (excludes backbone via get_named_params_*)
         if self.aux_model is not None:
             aux_params_with_wd = list(
                 p
@@ -158,10 +152,10 @@ class FlexMDMSharedBackboneHarness(FlexMDMVariationalHarness):
                 for _, p in self.aux_model.get_named_params_for_no_weight_decay()
             )
             logger.info(
-                f"Aux model (LoRA + heads) params with weight decay: {len(aux_params_with_wd)}"
+                f"Aux model head params with weight decay: {len(aux_params_with_wd)}"
             )
             logger.info(
-                f"Aux model (LoRA + heads) params without weight decay: {len(aux_params_without_wd)}"
+                f"Aux model head params without weight decay: {len(aux_params_without_wd)}"
             )
             aux_lr = None
             if self.config.get("aux_lr", None) is not None:

@@ -16,8 +16,10 @@ datamodule:
   print_batch_fn: flexmdm.datamodule_flexmdm.print_batch_flexmdm
 
 predictor:
-  confidence: prob_diff
+  confidence: null
   max_steps: 500
+  top_k: 1
+  top_p: null
 
 global_components:
   tokenizer:

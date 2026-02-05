@@ -1,5 +1,5 @@
 # @package _global_
-# Shared backbone configuration for FlexMDM with LoRA on aux model
+# Shared backbone configuration for FlexMDM
 
 # Shared transformer backbone (owned by harness, passed to both models)
 backbone:
@@ -33,9 +33,9 @@ model:
   rate_head_use_mlp: ${rate_head_use_mlp}
   schedule_type: ${schedule_type}
 
-# Auxiliary model (uses shared backbone frozen + LoRA)
+# Auxiliary model (uses shared backbone)
 aux_model:
-  _target_: lflexmdm.model_flexmdm_kuma.FlexMDMAuxModelSharedLoRA
+  _target_: lflexmdm.model_flexmdm_kuma.FlexMDMAuxModelShared
   # backbone: injected by harness
   d_model: 768
   dim_feedforward: ${eval:${.d_model}*4}
@@ -46,16 +46,6 @@ aux_model:
   max_rate: ${max_rate}
   rate_head_use_mlp: ${rate_head_use_mlp}
   schedule_type: ${schedule_type}
-  # Behavior toggles:
-  # - use_lora=true, freeze_backbone=true: original behavior (frozen backbone + LoRA)
-  # - use_lora=false, freeze_backbone=true: frozen backbone, no LoRA
-  # - use_lora=false, freeze_backbone=false: vanilla backprop through backbone
-  use_lora: true
-  freeze_backbone: true
-  # LoRA configuration
-  lora_rank: ${oc.select:lora_rank,16}
-  lora_alpha: ${oc.select:lora_alpha,16.0}
-  lora_dropout: ${oc.select:lora_dropout,0.0}
 
 tags:
   model: ddit_lflexmdm_kuma_shared

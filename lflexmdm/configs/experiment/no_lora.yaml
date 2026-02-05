@@ -1,4 +1,0 @@
-# @package _global_
-aux_model:
-  use_lora: false
-  freeze_backbone: false

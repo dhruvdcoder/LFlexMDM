@@ -1477,18 +1477,12 @@ class FlexMDMModelShared(Model):
                 yield (name, param)
 
 
-class FlexMDMAuxModelSharedLoRA(Model):
+class FlexMDMAuxModelShared(Model):
     """
-    Auxiliary FlexMDM model with shared backbone (optionally frozen) and optional
-    LoRA adapters.
+    Auxiliary FlexMDM model with shared backbone.
 
-    By default, this matches the original behavior:
-    - backbone is effectively frozen (no grads accumulated on backbone params)
-    - LoRA adapters are applied layer-by-layer to add trainable parameters
-
-    You can also disable LoRA and/or allow vanilla backprop through the backbone:
-    - use_lora=False, freeze_backbone=True  -> frozen backbone, no LoRA
-    - use_lora=False, freeze_backbone=False -> vanilla backprop through backbone
+    The backbone receives training signals from both the main model and this
+    auxiliary model via standard backpropagation.
     """
 
     def __init__(
@@ -1505,11 +1499,6 @@ class FlexMDMAuxModelSharedLoRA(Model):
         schedule_type: Literal[
             "simplified-kuma", "simplified-kuma2"
         ] = "simplified-kuma",
-        use_lora: bool = True,
-        freeze_backbone: bool = True,
-        lora_rank: int = 16,
-        lora_alpha: float = 16.0,
-        lora_dropout: float = 0.0,
         inner_autocast: bool = True,
         scalar_fn: Literal["softplus", "exp", "sigmoid"] = "softplus",
     ):
@@ -1520,33 +1509,8 @@ class FlexMDMAuxModelSharedLoRA(Model):
         self.schedule_type = schedule_type
         self.inner_autocast = inner_autocast
         self.scalar_fn = scalar_fn
-        self.use_lora = use_lora
-        self.freeze_backbone = freeze_backbone
-        self.lora_stack: Optional[nn.Module] = None
 
-        if self.use_lora and not self.freeze_backbone:
-            raise ValueError(
-                "FlexMDMAuxModelSharedLoRA currently only supports use_lora=True "
-                "with freeze_backbone=True (LoRA assumes a frozen backbone via "
-                "detached-weight ops). Set use_lora=False for vanilla backbone "
-                "backprop."
-            )
-
-        # LoRA adapters for each encoder layer
-        if self.use_lora:
-            # Import here to avoid circular imports
-            from lflexmdm.lora import DDiTLoRAStack
-
-            self.lora_stack = DDiTLoRAStack(
-                num_layers=backbone.num_layers,
-                d_model=d_model,
-                dim_feedforward=self.dim_feedforward,
-                rank=lora_rank,
-                alpha=lora_alpha,
-                dropout=lora_dropout,
-            )
-
-        # Rate heads (trainable, not frozen)
+        # Rate heads (trainable)
         self.lambda_ins_phi_head = ScalarRateHead(
             d_model,
             self.d_cond,
@@ -1568,201 +1532,6 @@ class FlexMDMAuxModelSharedLoRA(Model):
             scalar_fn=scalar_fn,
         )
 
-    @staticmethod
-    def _linear_with_detached_weights(
-        x: torch.Tensor, linear: nn.Linear
-    ) -> torch.Tensor:
-        """
-        Apply linear layer with detached weights.
-
-        Gradients flow THROUGH the computation (for LoRA backprop across layers)
-        but don't accumulate ON the linear layer's parameters.
-        """
-        W = linear.weight.detach()
-        b = linear.bias.detach() if linear.bias is not None else None
-        return F.linear(x, W, b)
-
-    def _embed_timestep_with_detached_weights(
-        self, t: torch.Tensor, sigma_map: TimestepEmbedder
-    ) -> torch.Tensor:
-        """
-        Embed timesteps with detached weights.
-
-        Gradients flow through but don't accumulate on sigma_map parameters.
-        """
-        # Compute frequency embedding (uses registered buffer, not learnable)
-        args = (
-            t[:, None].to(dtype=sigma_map.freqs.dtype) * sigma_map.freqs[None]
-        )
-        embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
-
-        # Apply MLP with detached weights
-        # mlp[0]: Linear
-        x = self._linear_with_detached_weights(embedding, sigma_map.mlp[0])
-        # mlp[1]: SiLU activation
-        x = sigma_map.mlp[1](x)
-        # mlp[2]: Linear
-        x = self._linear_with_detached_weights(x, sigma_map.mlp[2])
-
-        return F.silu(x)
-
-    @staticmethod
-    def _layernorm_with_detached_weights(
-        x: torch.Tensor, norm: LayerNormAndScale
-    ) -> torch.Tensor:
-        """
-        Apply LayerNormAndScale with detached weights.
-
-        Gradients flow through but don't accumulate on norm parameters.
-        """
-        with torch.autocast(device_type="cuda", enabled=False):
-            x_normed = F.layer_norm(x, [norm.dim], eps=norm.eps)
-        return x_normed * norm.norm.detach()[None, None, :]
-
-    def _adaln_modulations_with_detached_weights(
-        self,
-        c: torch.Tensor,
-        adaln: AdaLNModulations,
-    ) -> List[torch.Tensor]:
-        """
-        Compute AdaLN modulations with detached weights.
-        """
-        W = adaln.modulation.weight.detach()
-        b = adaln.modulation.bias.detach()
-        return F.linear(c, W, b)[:, None].chunk(
-            adaln.num_modulation_parameters, dim=2
-        )
-
-    def _forward_layer_with_lora(
-        self,
-        x: torch.Tensor,
-        c: torch.Tensor,
-        attention_mask: torch.Tensor,
-        positions: torch.Tensor,
-        backbone_layer: DDiTLayer,
-        lora_layer,  # DDiTLayerLoRA
-    ) -> torch.Tensor:
-        """
-        Forward through a single DDiTLayer with LoRA corrections.
-
-        Uses detached weights for backbone operations so that:
-        - Gradients flow THROUGH the computation (for LoRA backprop across layers)
-        - Gradients don't accumulate ON backbone parameters
-        """
-        # Get modulation parameters with detached weights
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-            self._adaln_modulations_with_detached_weights(
-                c, backbone_layer.ada_ln_modulations
-            )
-        )
-
-        # Apply adaLN before attention (norm with detached weights)
-        x_normed = self._layernorm_with_detached_weights(
-            x, backbone_layer.norm1
-        )
-        x_mod = AdaLNModulations.ada_ln_modulate(
-            x_normed, shift_msa, scale_msa
-        )
-
-        # QKV projection: backbone (detached weights) + LoRA
-        qkv_backbone = self._linear_with_detached_weights(
-            x_mod, backbone_layer.attn_qkv
-        )
-        qkv_lora = lora_layer.forward_attn_qkv(x_mod)
-        qkv = qkv_backbone + qkv_lora
-
-        q, k, v = qkv.chunk(3, dim=-1)
-
-        # Reshape for attention
-        n_heads = backbone_layer.n_heads
-        head_dim = backbone_layer.head_dim
-        seq_len = x.shape[1]
-
-        q = q.view(q.shape[0], q.shape[1], n_heads, head_dim).transpose(1, 2)
-        k = k.view(k.shape[0], k.shape[1], n_heads, head_dim).transpose(1, 2)
-        v = v.view(v.shape[0], v.shape[1], n_heads, head_dim).transpose(1, 2)
-
-        # Apply rotary embeddings (uses cached cos/sin, no trainable params)
-        q_rotary = backbone_layer.apply_rotary_pos_emb(q, positions)
-        k_rotary = backbone_layer.apply_rotary_pos_emb(k, positions)
-
-        # Attention
-        attn_mask = (
-            attention_mask.unsqueeze(-2).unsqueeze(-2)
-            if attention_mask is not None
-            else None
-        )
-
-        with torch.nn.attention.sdpa_kernel(backbone_layer.attn_backend):
-            attn_output = F.scaled_dot_product_attention(
-                q_rotary,
-                k_rotary,
-                v,
-                attn_mask=attn_mask,
-                dropout_p=backbone_layer.dropout if self.training else 0.0,
-            )
-
-        # Reshape attention output
-        attn_output = (
-            attn_output.transpose(1, 2)
-            .contiguous()
-            .view(x.shape[0], seq_len, backbone_layer.dim)
-        )
-
-        # Output projection: backbone (detached weights) + LoRA
-        x_attn_backbone = self._linear_with_detached_weights(
-            attn_output, backbone_layer.o_proj
-        )
-        x_attn_lora = lora_layer.forward_o_proj(attn_output)
-        x_attn = x_attn_backbone + x_attn_lora
-
-        # Gating and residual
-        x = add_bias_apply_dropout_scale(
-            x_attn,
-            bias=None,
-            dropout=backbone_layer.dropout,
-            scale=gate_msa,
-            residual=x,
-            training=self.training,
-        )
-
-        # MLP with LoRA
-        x_normed2 = self._layernorm_with_detached_weights(
-            x, backbone_layer.norm2
-        )
-        x_mlp_in = AdaLNModulations.ada_ln_modulate(
-            x_normed2, shift_mlp, scale_mlp
-        )
-
-        # MLP layer 1: backbone (detached weights) + LoRA
-        mlp_hidden_backbone = self._linear_with_detached_weights(
-            x_mlp_in, backbone_layer.mlp[0]
-        )
-        mlp_hidden_lora = lora_layer.forward_mlp_fc1(x_mlp_in)
-        mlp_hidden = mlp_hidden_backbone + mlp_hidden_lora
-
-        # Activation (no trainable params)
-        mlp_hidden = backbone_layer.mlp[1](mlp_hidden)
-
-        # MLP layer 2: backbone (detached weights) + LoRA
-        mlp_out_backbone = self._linear_with_detached_weights(
-            mlp_hidden, backbone_layer.mlp[2]
-        )
-        mlp_out_lora = lora_layer.forward_mlp_fc2(mlp_hidden)
-        mlp_out = mlp_out_backbone + mlp_out_lora
-
-        # Final gating and residual
-        x = add_bias_apply_dropout_scale(
-            mlp_out,
-            bias=None,
-            dropout=backbone_layer.dropout,
-            scale=gate_mlp,
-            residual=x,
-            training=self.training,
-        )
-
-        return x
-
     def forward(
         self,
         z_1: Integer[TT, "batch seq_len"],
@@ -1771,11 +1540,6 @@ class FlexMDMAuxModelSharedLoRA(Model):
     ) -> dict:
         """
         Forward pass for the auxiliary model.
-
-        - If use_lora=True: run frozen-backbone + LoRA path (original behavior).
-        - If use_lora=False and freeze_backbone=True: run frozen backbone forward.
-        - If use_lora=False and freeze_backbone=False: vanilla backprop through
-          the backbone.
 
         Args:
             z_1: Clean input sequences (B, L)
@@ -1788,70 +1552,13 @@ class FlexMDMAuxModelSharedLoRA(Model):
         assert attention_mask is not None
         attention_mask = attention_mask.to(torch.bool)
 
-        if self.use_lora:
-            if self.lora_stack is None:
-                raise RuntimeError(
-                    "use_lora=True but lora_stack is None. This should not happen."
-                )
-
-            # Embedding and conditioning from backbone with detached weights
-            # Gradients flow THROUGH but don't accumulate ON backbone parameters
-            hidden_states = F.embedding(
-                z_1,
-                self.backbone.embed_tokens.weight.detach(),
-                padding_idx=self.backbone.padding_idx,
-            )
-
-            # Timestep conditioning with detached weights
-            conditioning = self._embed_timestep_with_detached_weights(
-                t, self.backbone.sigma_map
-            )
-
-            positions = (attention_mask.cumsum(dim=1) - 1).clamp(min=0)
-
-            # Layer-by-layer forward with LoRA
-            if self.inner_autocast:
-                with torch.autocast(
-                    device_type="cuda",
-                    enabled=True,
-                    dtype=torch.bfloat16,
-                ):
-                    for i, backbone_layer in enumerate(self.backbone.encoder):
-                        hidden_states = self._forward_layer_with_lora(
-                            hidden_states,
-                            conditioning,
-                            attention_mask,
-                            positions,
-                            backbone_layer,
-                            self.lora_stack[i],
-                        )
-            else:
-                for i, backbone_layer in enumerate(self.backbone.encoder):
-                    hidden_states = self._forward_layer_with_lora(
-                        hidden_states,
-                        conditioning,
-                        attention_mask,
-                        positions,
-                        backbone_layer,
-                        self.lora_stack[i],
-                    )
-        else:
-            # Non-LoRA path: optionally freeze backbone by disabling autograd
-            if self.freeze_backbone:
-                with torch.no_grad():
-                    hidden_states, conditioning = self.backbone(
-                        z_1,
-                        t,
-                        attention_mask,
-                        inner_autocast=self.inner_autocast,
-                    )
-            else:
-                hidden_states, conditioning = self.backbone(
-                    z_1,
-                    t,
-                    attention_mask,
-                    inner_autocast=self.inner_autocast,
-                )
+        # Forward through shared backbone (gradients flow normally)
+        hidden_states, conditioning = self.backbone(
+            z_1,
+            t,
+            attention_mask,
+            inner_autocast=self.inner_autocast,
+        )
 
         # Apply rate heads (trainable)
         b_ins = self.lambda_ins_phi_head(hidden_states, conditioning)
@@ -1886,7 +1593,7 @@ class FlexMDMAuxModelSharedLoRA(Model):
         Get aux-model parameters that should have weight decay (excludes backbone).
 
         Note: in the shared-backbone setup, the harness owns the optimizer groups
-        for the backbone, so we exclude it here regardless of freeze_backbone.
+        for the backbone, so we exclude it here.
         """
         for name, param in self.named_parameters():
             # Skip backbone parameters - handled separately by the harness
@@ -1901,7 +1608,7 @@ class FlexMDMAuxModelSharedLoRA(Model):
         Get aux-model parameters without weight decay (excludes backbone).
 
         Note: in the shared-backbone setup, the harness owns the optimizer groups
-        for the backbone, so we exclude it here regardless of freeze_backbone.
+        for the backbone, so we exclude it here.
         """
         for name, param in self.named_parameters():
             # Skip backbone parameters - handled separately by the harness

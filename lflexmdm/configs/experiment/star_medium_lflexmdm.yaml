@@ -24,7 +24,7 @@ predictor:
 
 loss:
   _target_: lflexmdm.loss_flexmdm_kuma.LFlexMDMLoss
-  regularizer_weight: 100.0
+  regularizer_weight: 1.0
   use_length_scale: true
 
 datamodule:

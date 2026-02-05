@@ -1,5 +1,5 @@
 # @package _global_
-# Model type for FlexMDM with shared backbone and LoRA
+# Model type for FlexMDM with shared backbone
 
 defaults:
   - /metrics@reported_metrics.train.lm.accumulated_loss: accumulated_loss
