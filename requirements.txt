@@ -5,6 +5,7 @@ torch>=2.7.0,<2.8.0
 xlm-core==0.1.3.a0
 hydra-core
 lightning==2.5.2
+pytorch-lightning==2.5.5
 fsspec>=2025.3.0 # https://github.com/Lightning-AI/pytorch-lightning/pull/20780
 # --index-url https://download.pytorch.org/whl/cu124 ; torch==2.5.1+cu124
 # you can change the cuda version but make sure to use torch 2.5.1

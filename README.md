@@ -40,7 +40,7 @@ gdown --folder -O logs 1m_b8IQ0r4LJJheIhoqn3jWper1X41Lvb
 
 # Eval
 
-**(Baseline) FLexMDM on Graph Traversal**
+**(Baseline) FlexMDM on Graph Traversal**
 
 ```bash
 DATASET=star_hard # or star_easy, star_medium
@@ -62,7 +62,7 @@ else
     EXPERIMENT="[${DATASET}_${MODEL}_shared,b_um_1_a1]"
 fi
 CHECKPOINT_PATH=logs/${DATASET}_${MODEL}_${BACKBONE}/checkpoints/model_state_dict.pth
-xlm job_type=eval job_name=${DATASET}_${MODEL}_${BACKBONE} experiment=$EXPERIMENT ++eval.checkpoint_path=${CHECKPOINT_PATH} ++eval.split=test per_device_batch_size=64 global_batch_size=64 trainer_strategy=single_device ++trainer.precision=32-true compile=false +tags.eval_type=exact_match ~datamodule.dataset_managers.test.lm ++predictor.confidence=${CONFIDENCE} predictor.max_steps=500 ++predictor.top_k=1 ++predictor.top_p=null
+xlm job_type=eval job_name=${DATASET}_${MODEL}_${BACKBONE} experiment=$EXPERIMENT ++eval.model_only_checkpoint_path=${CHECKPOINT_PATH} ++eval.split=test per_device_batch_size=64 global_batch_size=64 trainer_strategy=single_device ++trainer.precision=32-true compile=false +tags.eval_type=exact_match ~datamodule.dataset_managers.test.lm ++predictor.confidence=${CONFIDENCE} predictor.max_steps=500 ++predictor.top_k=1 ++predictor.top_p=null
 ```
 
 **(Baseline) FlexMDM on molecule generation**
@@ -73,7 +73,7 @@ CONFIDENCE=null # or prob_diff or null or top_prob
 TOP_P=0.2 # or 0.5 or 1.0
 EXPERIMENT=${DATASET}_${MODEL}
 CHECKPOINT_PATH=logs/${DATASET}_${MODEL}/checkpoints/model_state_dict.pth
-xlm job_type=eval job_name=${DATASET}_${MODEL}_${BACKBONE} experiment=$EXPERIMENT ++eval.checkpoint_path=${CHECKPOINT_PATH} ++eval.split=test per_device_batch_size=64 global_batch_size=64 trainer_strategy=single_device ++trainer.precision=32-true compile=false +tags.eval_type=molgen datamodule.dataset_managers.test.unconditional_prediction.num_examples=1000 datamodule.dataset_managers.val.conditional_prediction.num_examples=1000 ~datamodule.dataset_managers.val.lm ~datamodule.dataset_managers.test.lm ++predictor.confidence=${CONFIDENCE} predictor.max_steps=1024 ++predictor.top_k=null ++predictor.top_p=${TOP_P}
+xlm job_type=eval job_name=${DATASET}_${MODEL}_${BACKBONE} experiment=$EXPERIMENT ++eval.model_only_checkpoint_path=${CHECKPOINT_PATH} ++eval.split=test per_device_batch_size=64 global_batch_size=64 trainer_strategy=single_device ++trainer.precision=32-true compile=false +tags.eval_type=molgen datamodule.dataset_managers.test.unconditional_prediction.num_examples=1000 datamodule.dataset_managers.val.conditional_prediction.num_examples=1000 ~datamodule.dataset_managers.val.lm ~datamodule.dataset_managers.test.lm ++predictor.confidence=${CONFIDENCE} predictor.max_steps=1024 ++predictor.top_k=null ++predictor.top_p=${TOP_P}
 ```
 
 **(Ours) LFlexMDM on molecule generation**
@@ -90,7 +90,7 @@ else
     EXPERIMENT="[${DATASET}_${MODEL}_shared,b_um_1_a1]"
 fi
 CHECKPOINT_PATH=logs/${DATASET}_${MODEL}_${BACKBONE}_${aux_size}/checkpoints/model_state_dict.pth
-xlm job_type=eval job_name=${DATASET}_${MODEL}_${BACKBONE} experiment=$EXPERIMENT ++eval.checkpoint_path=${CHECKPOINT_PATH} ++eval.split=test per_device_batch_size=64 global_batch_size=64 trainer_strategy=single_device ++trainer.precision=32-true compile=false +tags.eval_type=molgen datamodule.dataset_managers.test.unconditional_prediction.num_examples=1000 datamodule.dataset_managers.val.conditional_prediction.num_examples=1000 ++predictor.confidence=${CONFIDENCE} predictor.max_steps=1024 ++predictor.top_k=null ++predictor.top_p=${TOP_P}
+xlm job_type=eval job_name=${DATASET}_${MODEL}_${BACKBONE} experiment=$EXPERIMENT ++eval.model_only_checkpoint_path=${CHECKPOINT_PATH} ++eval.split=test per_device_batch_size=64 global_batch_size=64 trainer_strategy=single_device ++trainer.precision=32-true compile=false +tags.eval_type=molgen datamodule.dataset_managers.test.unconditional_prediction.num_examples=1000 datamodule.dataset_managers.val.conditional_prediction.num_examples=1000 ++predictor.confidence=${CONFIDENCE} predictor.max_steps=1024 ++predictor.top_k=null ++predictor.top_p=${TOP_P}
 ```
 
 # Train
@@ -118,7 +118,7 @@ if [ "$BACKBONE" = "separate" ]; then
 else
     EXPERIMENT="[${DATASET}_${MODEL}_shared,b_um_1_a1]"
 fi
-xlm job_name=${DATASET}_${MODEL}_${BACKBONE} job_type=train experiment=${EXPERIMENT} per_device_batch_size=64 trainer_strategy=single_device trainer.devices=1 trainer.num_nodes=1 ++trainer.precision=bf16-mixed compile=False 
+xlm job_name=${DATASET}_${MODEL}_${BACKBONE}_${aux_size} job_type=train experiment=${EXPERIMENT} per_device_batch_size=64 trainer_strategy=single_device trainer.devices=1 trainer.num_nodes=1 ++trainer.precision=bf16-mixed compile=False 
 ```
 
 # TODO (add citation)
