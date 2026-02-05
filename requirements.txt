@@ -1,7 +1,7 @@
 torch>=2.7.0,<2.8.0
 # TODO: xlm-core latest, update to pip
 #git+https://github.com/dhruvdcoder/xlm-core.git@f7a20eae5965a04513079245d60959098c9f0f0a
--e /scratch3/workspace/dhruveshpate_umass_edu-idlm/xlm-core
+#-e /scratch3/workspace/dhruveshpate_umass_edu-idlm/xlm-core
 hydra-core
 lightning==2.5.2
 fsspec>=2025.3.0 # https://github.com/Lightning-AI/pytorch-lightning/pull/20780
@@ -12,7 +12,7 @@ hydra-colorlog
 hydra-joblib-launcher
 hydra-submitit-launcher
 datasets >= 3.3.2, < 4.0.0 # was using 2.15.0 earlier due to some bug. Then used 3.3.2 successfully. With 4.0.0, one cannot use script based datasets but lm1b is script based as of Sep 5, 2025.
-transformers
+transformers==4.57.1
 more-itertools
 torchdata>=0.9.0
 rich
@@ -31,8 +31,11 @@ networkx
 # molecule generation
 pot>=0.9.5
 # scikit-learn==1.2.2 install this after due to soft bionemo-moco conflict
+# numpy==1.26.4 install after
 einops
 safe-mol==0.1.14
+rdkit
 pytdc==0.4.1
 easydict
 openbabel-wheel==3.1.1.22
+transformers==4.57.1

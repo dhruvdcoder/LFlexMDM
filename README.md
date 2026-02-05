@@ -30,3 +30,61 @@ EMAIL=???
 # torch compile logs
 TORCHDYNAMO_CAPTURE_SCALAR_OUTPUTS=1
 ```
+
+# Eval
+
+**(Baseline) FLexMDM on Graph Traversal**
+
+```bash
+DATASET=star_hard # or star_easy, star_medium
+MODEL=flexmdm
+CONFIDENCE=null # or prob_diff or null or top_prob
+EXPERIMENT=${DATASET}_${MODEL}
+xlm job_type=eval job_name=${DATASET}_${MODEL} experiment=$EXPERIMENT ++eval.model_only_checkpoint_path=logs/${DATASET}_${MODEL}/checkpoints/model_state_dict.pth ++eval.split=test per_device_batch_size=64 global_batch_size=64 trainer_strategy=single_device ++trainer.precision=32-true compile=false +tags.eval_type=exact_match ~datamodule.dataset_managers.test.lm ++predictor.confidence=${CONFIDENCE} predictor.max_steps=500 ++predictor.top_k=1 ++predictor.top_p=null
+```
+
+**(Ours) LFlexMDM on Graph Traversal**
+```bash
+DATASET=star_hard # or star_easy, star_medium
+MODEL=lflexmdm
+CONFIDENCE=null # or prob_diff or null or top_prob
+BACKBONE=separate # or shared
+if [ "$BACKBONE" = "separate" ]; then
+    EXPERIMENT="[${DATASET}_${MODEL},b_um_1_a1]"
+else
+    EXPERIMENT="[${DATASET}_${MODEL}_shared,b_um_1_a1,no_lora]"
+    # TODO (no_lora): Get rid of no_lora
+fi
+CHECKPOINT_PATH=logs/${DATASET}_${MODEL}_${BACKBONE}/checkpoints/model_state_dict.pth
+xlm job_type=eval job_name=${DATASET}_${MODEL}_${BACKBONE} experiment=$EXPERIMENT ++eval.checkpoint_path=${CHECKPOINT_PATH} ++eval.split=test per_device_batch_size=64 global_batch_size=64 trainer_strategy=single_device ++trainer.precision=32-true compile=false +tags.eval_type=exact_match ~datamodule.dataset_managers.test.lm ++predictor.confidence=${CONFIDENCE} predictor.max_steps=500 ++predictor.top_k=1 ++predictor.top_p=null
+```
+
+**(Baseline) FLexMDM on molecule generation**
+```bash
+DATASET=safe
+MODEL=flexmdm
+CONFIDENCE=null # or prob_diff or null or top_prob
+TOP_P=0.2 # or 0.5 or 1.0
+EXPERIMENT=${DATASET}_${MODEL}
+CHECKPOINT_PATH=logs/${DATASET}_${MODEL}/checkpoints/model_state_dict.pth
+xlm job_type=eval job_name=${DATASET}_${MODEL}_${BACKBONE} experiment=$EXPERIMENT ++eval.checkpoint_path=${CHECKPOINT_PATH} ++eval.split=test per_device_batch_size=64 global_batch_size=64 trainer_strategy=single_device ++trainer.precision=32-true compile=false +tags.eval_type=molgen datamodule.dataset_managers.test.unconditional_prediction.num_examples=1000 datamodule.dataset_managers.val.conditional_prediction.num_examples=1000 ~datamodule.dataset_managers.val.lm ~datamodule.dataset_managers.test.lm ++predictor.confidence=${CONFIDENCE} predictor.max_steps=1024 ++predictor.top_k=null ++predictor.top_p=${TOP_P}
+```
+
+**(Ours) LFlexMDM on molecule generation**
+```bash
+DATASET=safe
+MODEL=lflexmdm
+CONFIDENCE=null # or prob_diff or null or top_prob
+BACKBONE=separate # or shared
+TOP_P=0.2 # or 0.5 or 1.0
+aux_size=medium # or tiny or xtiny
+if [ "$BACKBONE" = "separate" ]; then
+    EXPERIMENT="[${DATASET}_${MODEL},b_um_1_a1,aux_size=${aux_size}]"
+else
+    EXPERIMENT="[${DATASET}_${MODEL}_shared,b_um_1_a1,no_lora]"
+    # TODO (no_lora): Get rid of no_lora
+fi
+CHECKPOINT_PATH=logs/${DATASET}_${MODEL}_${BACKBONE}_${aux_size}/checkpoints/model_state_dict.pth
+xlm job_type=eval job_name=${DATASET}_${MODEL}_${BACKBONE} experiment=$EXPERIMENT ++eval.checkpoint_path=${CHECKPOINT_PATH} ++eval.split=test per_device_batch_size=64 global_batch_size=64 trainer_strategy=single_device ++trainer.precision=32-true compile=false +tags.eval_type=molgen datamodule.dataset_managers.test.unconditional_prediction.num_examples=1000 datamodule.dataset_managers.val.conditional_prediction.num_examples=1000 ++predictor.confidence=${CONFIDENCE} predictor.max_steps=1024 ++predictor.top_k=null ++predictor.top_p=${TOP_P}
+```
+

@@ -17,7 +17,7 @@ model:
   max_length: ${eval:${block_size}+${oc.select:input_block_size,0}+4} #${predictor.max_length}
   force_flash_attn: false
   len_predict_type: ${len_predict_type} # choices: 'expectation', 'distribution'
-  len_head_type: linear # choices: 'mlp', 'linear'
+  len_head_type: mlp # choices: 'mlp', 'linear'
 
 tags:
   model: ddit_flexmdm

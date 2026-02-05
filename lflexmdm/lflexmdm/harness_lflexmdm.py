@@ -8,6 +8,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+
+
 class FlexMDMVariationalHarness(Harness):
     """Variational harness for learned noising FlexMDM with two separate optimizers."""
 
@@ -196,3 +198,12 @@ class FlexMDMVariationalHarness(Harness):
         if self.config.get("aux_analysis", False):
             self.predictor.model = self.aux_model
         super().on_test_start()
+
+
+class ExtractSharedModelState:
+    def extract_state_dict(self, checkpoint: dict) -> dict:
+        model_state_dict = {}
+        for key in checkpoint.keys():
+            if key.startswith("model."):
+                model_state_dict[key[6:]] = checkpoint[key]
+        return model_state_dict
