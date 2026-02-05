@@ -18,17 +18,6 @@ from .schedules import (
     log1mexp_exact_safegrad as log1mexp,
 )
 from .utils import bregman_divergence
-import xlm.flags as flags
-
-if hasattr(flags, "DEBUG_NO_PHI_LOSS"):
-    DEBUG_NO_PHI_LOSS = flags.DEBUG_NO_PHI_LOSS
-else:
-    DEBUG_NO_PHI_LOSS = False
-
-if hasattr(flags, "DEBUG_LOG_PHI"):
-    DEBUG_LOG_PHI = flags.DEBUG_LOG_PHI
-else:
-    DEBUG_LOG_PHI = False
 
 
 def sample_time(batch_size: int, device: torch.device) -> torch.Tensor:
@@ -195,16 +184,6 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
 
         total_loss = loss_1
         params_theta_debug = None
-        if DEBUG_LOG_PHI:
-            # send params_phi only for the relevant positions
-            params_theta_debug = {}
-            for name, value in params_theta_1.items():
-                if value is not None:
-                    value_debug = value.clone().detach()
-                    value_debug[~attention_mask_1.bool()] = torch.nan
-                    params_theta_debug[name] = value_debug
-                else:
-                    params_theta_debug[name] = None
         return {
             "loss": total_loss.mean(),
             "unmask_loss": (
@@ -239,7 +218,7 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
 
         # Step 3: Forward pass aux model to get a^{φ,i}(z_1) and b^{φ,i}(z_1)
         attention_mask = (z_1 != self.pad_token_id_tensor).bool()
-        if DEBUG_NO_PHI_LOSS or not self.phi_loss:
+        if not self.phi_loss:
             temp_ = torch.ones_like(z_1).to(dtype=t.dtype)
             params_phi = {
                 "b_ins": temp_,
@@ -391,7 +370,7 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
         )  # (B,)
 
         # Total loss
-        if DEBUG_NO_PHI_LOSS or not self.phi_loss:
+        if not self.phi_loss:
             total_loss = loss_theta.mean() if return_per_token else loss_theta
         else:
             total_loss = (
@@ -402,24 +381,6 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
 
         params_phi_debug = None
         params_theta_debug = None
-        if DEBUG_LOG_PHI:
-            # send params_phi only for the relevant positions
-            params_phi_debug = {}
-            for name, value in params_phi.items():
-                if value is not None:
-                    value_debug = value.clone().detach()
-                    value_debug[~phi_attention_mask.bool()] = torch.nan
-                    params_phi_debug[name] = value_debug
-                else:
-                    params_phi_debug[name] = None
-            params_theta_debug = {}
-            for name, value in params_theta_1.items():
-                if value is not None:
-                    value_debug = value.clone().detach()
-                    value_debug[~attention_mask_1.bool()] = torch.nan
-                    params_theta_debug[name] = value_debug
-                else:
-                    params_theta_debug[name] = None
 
         return {
             "loss": total_loss.mean() if not return_per_token else total_loss,
