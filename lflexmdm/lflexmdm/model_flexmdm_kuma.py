@@ -840,9 +840,6 @@ class FlexMDMModel(Model):
         rate_head_use_mlp: bool = True,
         inner_autocast: bool = True,
         compile: bool = False,
-        schedule_type: Literal[
-            "simplified-kuma"
-        ] = "simplified-kuma",
         scalar_fn: Literal["softplus", "exp", "sigmoid"] = "softplus",
         b_um: Optional[float] = None,
     ):
@@ -903,7 +900,6 @@ class FlexMDMModel(Model):
         )
 
         self.inner_autocast = inner_autocast
-        self.schedule_type = schedule_type
         if compile:
             for block in self.encoder:
                 block.compile()
@@ -995,9 +991,6 @@ class FlexMDMAuxModel(Model):
         rate_head_use_mlp: bool = True,
         inner_autocast: bool = True,
         compile: bool = False,
-        schedule_type: Literal[
-            "simplified-kuma"
-        ] = "simplified-kuma",
         scalar_fn: Literal["softplus", "exp"] = "softplus",
         b_um: Optional[float] = None,
     ):
@@ -1053,7 +1046,6 @@ class FlexMDMAuxModel(Model):
         )
 
         self.inner_autocast = inner_autocast
-        self.schedule_type = schedule_type
         self.compile = compile
         if self.compile:
             for block in self.encoder:
@@ -1267,9 +1259,6 @@ class FlexMDMModelShared(Model):
         min_rate: float = 0.01,
         max_rate: float = 100.0,
         rate_head_use_mlp: bool = True,
-        schedule_type: Literal[
-            "simplified-kuma"
-        ] = "simplified-kuma",
         scalar_fn: Literal["softplus", "exp", "sigmoid"] = "softplus",
         b_um: Optional[float] = None,
     ):
@@ -1277,7 +1266,6 @@ class FlexMDMModelShared(Model):
         self.backbone = backbone
         self.d_cond = d_cond or d_model // 2
         self.num_embeddings = num_embeddings
-        self.schedule_type = schedule_type
         self.b_um = b_um
 
         # Output layer for vocab logits
@@ -1380,9 +1368,6 @@ class FlexMDMAuxModelShared(Model):
         min_rate: float = 0.01,
         max_rate: float = 100.0,
         rate_head_use_mlp: bool = True,
-        schedule_type: Literal[
-            "simplified-kuma"
-        ] = "simplified-kuma",
         inner_autocast: bool = True,
         scalar_fn: Literal["softplus", "exp", "sigmoid"] = "softplus",
         b_um: Optional[float] = None,
@@ -1391,7 +1376,6 @@ class FlexMDMAuxModelShared(Model):
         self.backbone = backbone
         self.d_cond = d_cond or d_model // 2
         self.dim_feedforward = dim_feedforward or 4 * d_model
-        self.schedule_type = schedule_type
         self.inner_autocast = inner_autocast
         self.scalar_fn = scalar_fn
         self.b_um = b_um

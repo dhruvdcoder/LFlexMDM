@@ -21,7 +21,6 @@ model:
   min_rate: ${min_rate}
   max_rate: ${max_rate}
   rate_head_use_mlp: ${rate_head_use_mlp}
-  schedule_type: ${schedule_type} # choices: 'simplified-kuma'
 
 aux_model:
   _target_: lflexmdm.model_flexmdm_kuma.FlexMDMAuxModel
@@ -44,6 +43,5 @@ aux_model:
   min_rate: ${min_rate}
   max_rate: ${max_rate}
   rate_head_use_mlp: ${rate_head_use_mlp}
-  schedule_type: ${schedule_type} # choices: 'simplified-kuma'
 tags:
   model: ddit_lflexmdm_kuma
