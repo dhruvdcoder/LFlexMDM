@@ -439,7 +439,7 @@ class SimplifiedKumaSchedule(InterpolantSchedule):
 
         Notes:
         - For `SimplifiedKumaSchedule`, `a` is taken from `self.a` unless
-          provided in `param["a"]` (so subclasses like `KumaraswamySchedule`
+          provided in `param["a"]` (so subclasses
           that use per-position `a` work correctly).
         - This discourages low-entropy / degenerate schedules (e.g., excessive
           mass near endpoints), and is intentionally separate from the existing
@@ -534,97 +534,12 @@ class SimplifiedKumaSchedule(InterpolantSchedule):
         # return old_reg
 
 
-class KumaraswamySchedule(SimplifiedKumaSchedule):
-    """
-    Kumaraswamy schedule where a_ins = a_unmask and b_ins = b_unmask.
-    """
-
-    def _get_a_b(
-        self, param: Optional[dict[str, torch.Tensor]] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        if param is None or not isinstance(param, dict):
-            raise ValueError("param must be a dict")
-        b = param["b"]
-        if (a := param.get("a", None)) is None:
-            a = torch.full_like(b, fill_value=self.a, dtype=b.dtype)
-        return a, b
-
-    def derivative_at(
-        self,
-        t: Float[TT, "..."],
-        param: Optional[dict[str, torch.Tensor]] = None,
-    ) -> Float[TT, "..."]:
-        # param = dict with keys 'a' and 'b'
-        # Caller guarantees a_ins == a_unmask and b_ins == b_unmask
-        a, b = self._get_a_b(param)
-        # d/dt [1 - (1 - t^a)^b] = a*b*t^(a-1) * (1 - t^a)^(b-1)
-        t_clamped = t.clamp(0.0, 1.0)
-        one_minus_ta = (1 - t_clamped**a).clamp_min(1e-10)
-        return a * b * (t_clamped ** (a - 1)) * (one_minus_ta ** (b - 1))
-
-    def at(
-        self,
-        t: Float[TT, "..."],
-        param: Optional[dict[str, torch.Tensor]] = None,
-    ) -> Float[TT, "..."]:
-        # param = dict with keys 'a' and 'b'
-        # Caller guarantees a_ins == a_unmask and b_ins == b_unmask
-        a, b = self._get_a_b(param)
-        # t_clamped = t.clamp(0.0, 1.0 - 1e-7)
-        # log_one_minus_ta = torch.log1p(-t_clamped**a)
-        ## (1 - (1 - t^a)^b)
-        ##return 1 - (1 - t_clamped**a) ** b
-        # return -torch.expm1(b * log_one_minus_ta)
-        return -torch.expm1(
-            b * torch.log1p(-((t.clamp(0.0, 1.0) ** a).clamp(0.0, 1.0 - 1e-7)))
-        )
-
-    def inv(
-        self,
-        alpha: Float[TT, "..."],
-        param: Optional[dict[str, torch.Tensor]] = None,
-    ) -> Float[TT, "..."]:
-        # param = dict with keys 'a' and 'b'
-        # Caller guarantees a_ins == a_unmask and b_ins == b_unmask
-        if param is None or not isinstance(param, dict):
-            raise ValueError("param must be a dict")
-        a, b = param["a"], param["b"]
-        # alpha = 1 - (1 - t^a)^b
-        # => 1 - alpha = (1 - t^a)^b
-        # => (1 - alpha)^(1/b) = 1 - t^a
-        # => t = (1 - (1 - alpha)^(1/b))^(1/a)
-        # alpha_clamped = alpha.clamp(0.0, 1.0)
-        # inner = (1 - alpha_clamped).clamp_min(1e-10) ** (1 / b)
-        # return (1 - inner).clamp_min(0.0) ** (1 / a)
-        return (
-            -torch.expm1(torch.log1p(-alpha.clamp(0.0, 1.0)) / b)
-        ).clamp_min(0.0) ** (1 / a)
-
-    def rate_scale_factor(
-        self,
-        t: Float[TT, "..."],
-        param: Optional[dict[str, torch.Tensor]] = None,
-    ) -> Float[TT, "..."]:
-        # For Kumaraswamy CDF alpha(t), the hazard-like factor used elsewhere is:
-        # (d/dt alpha(t)) / (1 - alpha(t)) = a*b*t^(a-1) / (1 - t^a)
-        # Caller guarantees a_ins == a_unmask and b_ins == b_unmask
-        a, b = self._get_a_b(param)
-        t_clamped = t.clamp(0.0, 1.0)
-        # Numerically stable computation of (1 - t^a) near t≈1:
-        # 1 - t^a = -expm1(a * log(t))
-        # (use clamp_min to avoid log(0), and clamp_min afterwards to avoid divide-by-zero)
-        # bf16 note: do log/expm1 in fp32 for stability.
-        log_t = torch.log(t_clamped.clamp_min(1e-12).float())
-        denom = (-torch.expm1(a.float() * log_t)).clamp_min(1e-10)
-        return a * b * (t_clamped ** (a - 1)) / denom
-
-
 class FlexMDMSchedule:
 
     def __init__(
         self,
         schedule_type: Literal[
-            "simplified-kuma", "simplified-kuma2", "linear"
+            "simplified-kuma", "linear"
         ],
         a_min: float = 1.01,
         boundary_reg_weight: float = 1.0,
@@ -635,7 +550,7 @@ class FlexMDMSchedule:
         ] = "squared_relu",
     ):
         """
-        schedule_type: "simplified-kuma" or "simplified-kuma2". "simplified-kuma" is the simplified Kumaraswamy schedule with a=1, "simplified-kuma2" is the Kumaraswamy schedule with a!=1, but with shared a and b parameters for the insertion and unmasking schedules.
+        schedule_type: "simplified-kuma" is the simplified Kumaraswamy schedule with a=1.
         """
         self.schedule_type = schedule_type
         if schedule_type == "simplified-kuma":
@@ -653,9 +568,6 @@ class FlexMDMSchedule:
                 mean_reg_weight=mean_reg_weight,
                 boundary_reg_type=boundary_reg_type,
             )
-        elif schedule_type == "simplified-kuma2":
-            self.insertion_noise_schedule = KumaraswamySchedule()
-            self.unmasking_noise_schedule = self.insertion_noise_schedule
         elif schedule_type == "linear":
             self.insertion_noise_schedule = LinearSchedule()
             self.unmasking_noise_schedule = self.insertion_noise_schedule
@@ -697,18 +609,6 @@ class FlexMDMSchedule:
                     t_ins, {"b": b_unmask}
                 )
             return t_ins, t_unmask
-        elif param is not None and self.schedule_type == "simplified-kuma2":
-            # Caller guarantees a_ins == a_unmask and b_ins == b_unmask
-            a_ins = param["a_ins"]
-            b_ins = param["b_ins"]
-            with torch.no_grad():
-                t_ins = self.insertion_noise_schedule.sample(
-                    {"a": a_ins, "b": b_ins}
-                )
-                t_unmask = self.unmasking_noise_schedule.sample_truncated(
-                    t_ins, {"a": a_ins, "b": b_ins}
-                )
-            return t_ins, t_unmask
         else:
             raise ValueError(f"Invalid schedule type: {self.schedule_type}")
 
@@ -721,11 +621,6 @@ class FlexMDMSchedule:
             # For simplified-kuma: a_ins=1 (implicit), use b_ins
             return self.insertion_noise_schedule.rate_scale_factor(
                 t, {"b": param["b_ins"]}
-            )
-        elif self.schedule_type == "simplified-kuma2":
-            # Caller guarantees a_ins == a_unmask and b_ins == b_unmask
-            return self.insertion_noise_schedule.rate_scale_factor(
-                t, {"a": param["a_ins"], "b": param["b_ins"]}
             )
         else:  # self.schedule_type == "linear":
             return self.insertion_noise_schedule.rate_scale_factor(t, None)
@@ -740,11 +635,6 @@ class FlexMDMSchedule:
             return self.unmasking_noise_schedule.rate_scale_factor(
                 t, {"b": param["b_unmask"]}
             )
-        elif self.schedule_type == "simplified-kuma2":
-            # Caller guarantees a_ins == a_unmask and b_ins == b_unmask
-            return self.unmasking_noise_schedule.rate_scale_factor(
-                t, {"a": param["a_unmask"], "b": param["b_unmask"]}
-            )
         else:  # self.schedule_type == "linear":
             return self.unmasking_noise_schedule.rate_scale_factor(t, None)
 
@@ -755,8 +645,6 @@ class FlexMDMSchedule:
     ) -> Float[TT, "..."]:
         if self.schedule_type == "simplified-kuma":
             return self._log_likelihood_dropped(t, param)
-        elif self.schedule_type == "simplified-kuma2":
-            return self._log_likelihood_dropped2(t, param)
         else:
             raise ValueError(f"Invalid schedule type: {self.schedule_type}")
 
@@ -767,8 +655,6 @@ class FlexMDMSchedule:
     ) -> Float[TT, "..."]:
         if self.schedule_type == "simplified-kuma":
             return self._log_likelihood_masked(t, param)
-        elif self.schedule_type == "simplified-kuma2":
-            return self._log_likelihood_masked2(t, param)
         else:
             raise ValueError(f"Invalid schedule type: {self.schedule_type}")
 
@@ -779,8 +665,6 @@ class FlexMDMSchedule:
     ) -> Float[TT, "..."]:
         if self.schedule_type == "simplified-kuma":
             return self._log_likelihood_unmasked(t, param)
-        elif self.schedule_type == "simplified-kuma2":
-            return self._log_likelihood_unmasked2(t, param)
         else:
             raise ValueError(f"Invalid schedule type: {self.schedule_type}")
 
@@ -891,78 +775,6 @@ class FlexMDMSchedule:
         ll_unmasked = log1mexp_exact_safegrad(total)
         return ll_unmasked
 
-    def _log_likelihood_dropped2(
-        self,
-        t: Float[TT, "..."],
-        param: Optional[dict[str, torch.Tensor]] = None,
-    ) -> Float[TT, "..."]:
-        """
-        Log probability of the DROPPED state for the a!=1 Kumaraswamy case.
-        Caller guarantees a_ins=a_unmask and b_ins=b_unmask.
-        """
-        if param is None or not isinstance(param, dict):
-            raise ValueError("param must be a dict")
-        a = param["a_ins"]
-        b = param["b_ins"]
-        if a is None:
-            a = torch.full_like(
-                b, fill_value=self.insertion_noise_schedule.a, dtype=b.dtype
-            )
-        t_b = t
-        if t_b.dim() == a.dim() - 1:
-            t_b = t_b.unsqueeze(-1)
-        # bf16 note: ensure numerically sensitive ops (pow/log1p) run in fp32.
-        t_b_f = t_b.clamp(0.0, 1.0).float()
-        a_f = a.float()
-        b_f = b.float()
-        t_pow = (t_b_f**a_f).clamp(0.0, 1.0 - 1e-7)
-        return b_f * torch.log1p(-t_pow)
-
-    def _log_likelihood_masked2(
-        self,
-        t: Float[TT, "..."],
-        param: Optional[dict[str, torch.Tensor]] = None,
-    ) -> Float[TT, "..."]:
-        """
-        Log probability of the MASKED state for the a!=1 Kumaraswamy case.
-        Caller guarantees a_ins=a_unmask and b_ins=b_unmask.
-        """
-        if param is None or not isinstance(param, dict):
-            raise ValueError("param must be a dict")
-        # Caller guarantees a_ins == a_unmask and b_ins == b_unmask
-        a = param["a_ins"]
-        b = param["b_ins"]
-        t_b = t
-        if t_b.dim() == a.dim() - 1:
-            t_b = t_b.unsqueeze(-1)
-        # bf16 note: ensure numerically sensitive ops (pow/log1p/log) run in fp32.
-        t_b_f = t_b.clamp(0.0, 1.0).float()
-        a_f = a.float()
-        b_f = b.float()
-        t_pow = (t_b_f**a_f).clamp(0.0, 1.0 - 1e-7)
-        log_one_minus_ta = torch.log1p(-t_pow)
-        log_b = torch.log(b_f.clamp_min(1e-20))
-        log_I = log_b + torch.log(
-            (-log_one_minus_ta).clamp_min(1e-20)
-        )  # log(b * -log(1 - t^a))
-        log_p = b_f * log_one_minus_ta + log_I
-        return log_p.clamp(max=0.0)
-
-    def _log_likelihood_unmasked2(
-        self,
-        t: Float[TT, "..."],
-        param: Optional[dict[str, torch.Tensor]] = None,
-    ) -> Float[TT, "..."]:
-        """
-        Log probability of the UNMASKED state for the a!=1 Kumaraswamy case.
-        Caller guarantees a_ins=a_unmask and b_ins=b_unmask.
-        """
-        ll_dropped = self._log_likelihood_dropped2(t, param)
-        ll_masked = self._log_likelihood_masked2(t, param)
-        total = torch.logaddexp(ll_dropped, ll_masked)
-        ll_unmasked = log1mexp_exact_safegrad(total)
-        return ll_unmasked
-
     def compute_generator_loss(
         self,
         z_1: torch.Tensor,
@@ -975,8 +787,6 @@ class FlexMDMSchedule:
         hazard_theta: List[torch.Tensor],  # hazard ins, and hazard unmask
         mask_token_id: torch.Tensor,
         lenght_scale: float = 1.0,
-        use_unmask_counts: bool = True,
-        return_per_token: bool = False,
     ) -> torch.Tensor:
         """
         Compute loss for a single variable-length masked sample.
@@ -987,14 +797,9 @@ class FlexMDMSchedule:
         """
         batch_size, max_seq_len = z_1.shape
         hazard_ins_phi, hazard_unmask_phi = hazard_phi
-        hazard_ins_theta, hazard_unmask_theta = hazard_theta
+        hazard_ins_theta, hazard_unmask_theta = hazard_theta        
 
-        # ============== UNMASKING LOSS ==============
-        # RED term:  -b^φ * dot_β * log K^θ(z_1 | x_t)
-        # BLUE term: b^φ * dot_β * log(b^φ / b^θ)
-        # TEAL term: (b^θ - b^φ) * dot_β
-        # Combined BLUE + TEAL = bregman_divergence(b^φ, b^θ)
-
+        # ============== UNMASKING LOSS ==============``
         # Get target tokens by gathering from z_1 using s_t
         z_1_sorted = torch.gather(z_1, 1, s_t)  # (B, L)
 
@@ -1011,10 +816,10 @@ class FlexMDMSchedule:
             -1
         )  # (B, L)
 
-        # RED term: weighted cross-entropy
+        # weighted cross-entropy
         red_term = -hazard_unmask_phi_sorted * log_K_theta
 
-        # BLUE + TEAL terms: Full Bregman divergence for bias matching
+        # Full Bregman divergence for hazard matching
         # bregman_divergence(b_phi, b_theta) = b_theta - b_phi + b_phi * log(b_phi/b_theta)
         bregman_unmask = bregman_divergence(
             hazard_unmask_phi_sorted, hazard_unmask_theta
@@ -1029,14 +834,6 @@ class FlexMDMSchedule:
         )  # (B, L)
 
         # ============== INSERTION LOSS ==============
-        # BLUE term: (Σ_{j∈G_i} a^φ_j) * dot_α * log((Σ_{j∈G_i} a^φ_j) / a^θ_i)
-        # TEAL term: (a^θ_i - Σ_{j∈G_i} a^φ_j) * dot_α
-        # Combined BLUE + TEAL = bregman_divergence(gap_sum, a^θ)
-        # Note: gap_sums is precomputed in sample_varlen_masked_sequence
-
-        # BLUE + TEAL terms: Full Bregman divergence for insertion rate matching
-        # bregman_divergence(gap_sums, a_theta) = a_theta - gap_sums + gap_sums * log(gap_sums/a_theta)
-
         bregman_insert = bregman_divergence(gap_sums, hazard_ins_theta)
 
         # Apply to valid gaps
@@ -1045,9 +842,6 @@ class FlexMDMSchedule:
             bregman_insert,
             torch.zeros_like(bregman_insert),
         )
-        if return_per_token:
-            total_loss = insertion_loss + unmask_loss
-            return total_loss, unmask_loss, insertion_loss
 
         # ============== COMBINE ==============
         # -- FLEXMDM uses common normalizer
@@ -1063,12 +857,7 @@ class FlexMDMSchedule:
         # -- we use counts
 
         insertion_loss = insertion_loss.sum(-1) / lenght_scale
-        if lenght_scale > 1.0 and use_unmask_counts:
-            unmask_loss = unmask_loss.sum(-1) / mask_indices.sum(-1).clamp(
-                min=1.0
-            )
-        else:
-            unmask_loss = unmask_loss.sum(-1) / lenght_scale
+        unmask_loss = unmask_loss.sum(-1) / mask_indices.sum(-1).clamp(min=1.0)
 
         total_loss = unmask_loss + insertion_loss  # (B,)
 

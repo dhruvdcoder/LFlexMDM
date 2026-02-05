@@ -1,9 +1,6 @@
-from typing import Optional, cast
+from typing import Optional
 
-from jaxtyping import Float
 import torch
-import torch.nn.functional as F
-from torch import Tensor as TT
 from .types_flexmdm import (
     FlexMDMAuxModel,
     FlexMDMBatch,
@@ -14,10 +11,7 @@ from xlm.harness import LossFunction, Harness
 from xlm.datamodule import Tokenizer
 from .schedules import (
     FlexMDMSchedule,
-    Schedule,
-    log1mexp_exact_safegrad as log1mexp,
 )
-from .utils import bregman_divergence
 
 
 def sample_time(batch_size: int, device: torch.device) -> torch.Tensor:
@@ -50,7 +44,6 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
         phi_loss: bool = True,
         max_length: float = 1.0,
         stop_grad_on_phi: bool = False,
-        use_unmask_counts: bool = True,
         reinforce_weight: float = 1.0,
         _use_t: bool = True,  # for a future model, use False
     ):
@@ -65,7 +58,6 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
         self.phi_loss = phi_loss
         self.max_length = max_length
         self.stop_grad_on_phi = stop_grad_on_phi
-        self.use_unmask_counts = use_unmask_counts
         self.reinforce_weight = reinforce_weight
         self._use_t = _use_t
 
@@ -178,7 +170,6 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
                 [hazard_ins_theta_1, hazard_unmask_theta_1],
                 self.mask_token_id_tensor,
                 lenght_scale=self.max_length,
-                use_unmask_counts=self.use_unmask_counts,
             )
         )
 
@@ -295,7 +286,6 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
             t.unsqueeze(-1), params_theta_2
         )
 
-        return_per_token = False  # Cannot work per token for REINFORCE loss
         loss_1, unmask_loss_1, insertion_loss_1 = (
             self.noise_schedule.compute_generator_loss(
                 z_1,
@@ -312,8 +302,6 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
                 [hazard_ins_theta_1, hazard_unmask_theta_1],
                 self.mask_token_id_tensor,
                 lenght_scale=self.max_length,
-                use_unmask_counts=self.use_unmask_counts,
-                return_per_token=return_per_token,
             )
         )
         loss_2, unmask_loss_2, insertion_loss_2 = (
@@ -332,13 +320,11 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
                 [hazard_ins_theta_2, hazard_unmask_theta_2],
                 self.mask_token_id_tensor,
                 lenght_scale=self.max_length,
-                use_unmask_counts=self.use_unmask_counts,
-                return_per_token=return_per_token,
             )
         )
 
         # Step 7: REINFORCE with leave-one-out baseline
-        loss_theta = 0.5 * (loss_1 + loss_2)  # (B,) or (B, L)
+        loss_theta = 0.5 * (loss_1 + loss_2)  # (B,)
 
         phi_attention_mask = attention_mask & (~fixed)
         log_p_phi_1 = self.compute_log_prob_phi(
@@ -347,21 +333,19 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
             phi_attention_mask,
             deleted_1,
             masked_1,
-            return_per_token=return_per_token,
-        )  # (B,) or (B, L)
+        )  # (B,)
         log_p_phi_2 = self.compute_log_prob_phi(
             params_phi,
             t,
             phi_attention_mask,
             deleted_2,
             masked_2,
-            return_per_token=return_per_token,
-        )  # (B,) or (B, L)
+        )  # (B,)
 
         # REINFORCE gradient
         loss_phi_reinforce = 0.5 * (
             (loss_1.detach() - loss_2.detach()) * (log_p_phi_1 - log_p_phi_2)
-        )  # (B,) or (B, L)
+        )  # (B,)
 
         reg_loss = self.noise_schedule.regularizer(
             t.unsqueeze(-1),
@@ -371,7 +355,7 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
 
         # Total loss
         if not self.phi_loss:
-            total_loss = loss_theta.mean() if return_per_token else loss_theta
+            total_loss = loss_theta
         else:
             total_loss = (
                 loss_theta
@@ -383,7 +367,7 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
         params_theta_debug = None
 
         return {
-            "loss": total_loss.mean() if not return_per_token else total_loss,
+            "loss": total_loss.mean(),
             "loss_theta": loss_theta.detach(),
             "advantage": (loss_1.detach() - loss_2.detach()),
             "log_p_diff": (log_p_phi_1.detach() - log_p_phi_2.detach()),
@@ -405,7 +389,6 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
         attention_mask: torch.Tensor,
         deleted: torch.Tensor,
         masked: torch.Tensor,
-        return_per_token: bool = False,
     ) -> torch.Tensor:
         """
 
@@ -423,7 +406,6 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
         # Delegate the state log-prob computations to the schedule container.
         # NOTE:
         # - For schedule_type="simplified-kuma", param=(b_ins_phi, b_unmask_phi).
-        # - For schedule_type="simplified-kuma2", the same tensors are interpreted as (a, b).
 
         log_prob_deleted = self.noise_schedule.log_likelihood_dropped(
             t, params_phi
@@ -447,13 +429,4 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
             attention_mask.bool(), log_p_t, torch.zeros_like(log_p_t)
         )
 
-        # Compute masked mean (per-position loss to match scale of loss on theta)
-        # Handle empty sequences by clamping the denominator
-        # num_valid_positions = attention_mask.sum()
-        # log_prob_mean = log_p_t_masked.sum() / torch.clamp(
-        #    num_valid_positions, min=1.0
-        # )
-
-        if return_per_token:
-            return log_p_t
         return log_p_t.sum(-1)  # (B,)

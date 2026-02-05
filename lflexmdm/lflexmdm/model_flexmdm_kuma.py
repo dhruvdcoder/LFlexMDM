@@ -850,7 +850,7 @@ class FlexMDMModel(Model):
         inner_autocast: bool = True,
         compile: bool = False,
         schedule_type: Literal[
-            "simplified-kuma", "simplified-kuma2"
+            "simplified-kuma"
         ] = "simplified-kuma",
         scalar_fn: Literal["softplus", "exp", "sigmoid"] = "softplus",
     ):
@@ -908,30 +908,6 @@ class FlexMDMModel(Model):
             use_mlp=rate_head_use_mlp,
             scalar_fn=scalar_fn,
         )
-        if schedule_type == "simplified-kuma2":
-            self.a_ins_theta_head = ScalarRateHead(
-                d_model,
-                self.d_cond,
-                rate_head_type=rate_head_type,
-                num_rate_bins=num_rate_bins,
-                min_rate=min_rate,
-                max_rate=max_rate,
-                use_mlp=rate_head_use_mlp,
-                scalar_fn=scalar_fn,
-            )
-            self.a_unmask_theta_head = ScalarRateHead(
-                d_model,
-                self.d_cond,
-                rate_head_type=rate_head_type,
-                num_rate_bins=num_rate_bins,
-                min_rate=min_rate,
-                max_rate=max_rate,
-                use_mlp=rate_head_use_mlp,
-                scalar_fn=scalar_fn,
-            )
-        else:
-            self.a_ins_theta_head = None
-            self.a_unmask_theta_head = None
 
         self.inner_autocast = inner_autocast
         self.schedule_type = schedule_type
@@ -941,10 +917,6 @@ class FlexMDMModel(Model):
             self.output_layer.compile()
             self.b_ins_theta_head.compile()
             self.b_unmask_theta_head.compile()
-            if self.a_ins_theta_head is not None:
-                self.a_ins_theta_head.compile()
-            if self.a_unmask_theta_head is not None:
-                self.a_unmask_theta_head.compile()
 
     def forward(
         self,
@@ -988,18 +960,7 @@ class FlexMDMModel(Model):
         vocab_logits = self.output_layer(x, c)  # (B, L, V)
         b_ins = self.b_ins_theta_head(x, c)  # (B, L)
         b_unmask = self.b_unmask_theta_head(x, c)  # (B, L)
-        if self.schedule_type == "simplified-kuma2":
-            a_ins = self.a_ins_theta_head(x, c)  # (B, L)
-            a_unmask = self.a_unmask_theta_head(x, c)  # (B, L)
-            return {
-                "vocab_logits": vocab_logits,
-                "a_ins": a_ins,
-                "b_ins": b_ins,
-                "a_unmask": a_unmask,
-                "b_unmask": b_unmask,
-            }
-        else:
-            if DEBUG_FIX_B_UM:
+        if DEBUG_FIX_B_UM:
                 return {
                     "vocab_logits": vocab_logits,
                     "a_ins": None,
@@ -1016,7 +977,7 @@ class FlexMDMModel(Model):
             #        "a_unmask": None,
             #        "b_unmask": b_ins,
             #    }
-            return {
+        return {
                 "vocab_logits": vocab_logits,
                 "a_ins": None,
                 "b_ins": b_ins,
@@ -1055,7 +1016,7 @@ class FlexMDMAuxModel(Model):
         inner_autocast: bool = True,
         compile: bool = False,
         schedule_type: Literal[
-            "simplified-kuma", "simplified-kuma2"
+            "simplified-kuma"
         ] = "simplified-kuma",
         scalar_fn: Literal["softplus", "exp"] = "softplus",
     ):
@@ -1346,7 +1307,7 @@ class FlexMDMModelShared(Model):
         max_rate: float = 100.0,
         rate_head_use_mlp: bool = True,
         schedule_type: Literal[
-            "simplified-kuma", "simplified-kuma2"
+            "simplified-kuma"
         ] = "simplified-kuma",
         scalar_fn: Literal["softplus", "exp", "sigmoid"] = "softplus",
     ):
@@ -1383,30 +1344,6 @@ class FlexMDMModelShared(Model):
             use_mlp=rate_head_use_mlp,
             scalar_fn=scalar_fn,
         )
-        if schedule_type == "simplified-kuma2":
-            self.a_ins_theta_head = ScalarRateHead(
-                d_model,
-                self.d_cond,
-                rate_head_type=rate_head_type,
-                num_rate_bins=num_rate_bins,
-                min_rate=min_rate,
-                max_rate=max_rate,
-                use_mlp=rate_head_use_mlp,
-                scalar_fn=scalar_fn,
-            )
-            self.a_unmask_theta_head = ScalarRateHead(
-                d_model,
-                self.d_cond,
-                rate_head_type=rate_head_type,
-                num_rate_bins=num_rate_bins,
-                min_rate=min_rate,
-                max_rate=max_rate,
-                use_mlp=rate_head_use_mlp,
-                scalar_fn=scalar_fn,
-            )
-        else:
-            self.a_ins_theta_head = None
-            self.a_unmask_theta_head = None
 
     def forward(
         self,
@@ -1430,18 +1367,7 @@ class FlexMDMModelShared(Model):
         b_ins = self.b_ins_theta_head(hidden_states, conditioning)
         b_unmask = self.b_unmask_theta_head(hidden_states, conditioning)
 
-        if self.schedule_type == "simplified-kuma2":
-            a_ins = self.a_ins_theta_head(hidden_states, conditioning)
-            a_unmask = self.a_unmask_theta_head(hidden_states, conditioning)
-            return {
-                "vocab_logits": vocab_logits,
-                "a_ins": a_ins,
-                "b_ins": b_ins,
-                "a_unmask": a_unmask,
-                "b_unmask": b_unmask,
-            }
-        else:
-            if DEBUG_FIX_B_UM:
+        if DEBUG_FIX_B_UM:
                 return {
                     "vocab_logits": vocab_logits,
                     "b_ins": b_ins,
@@ -1449,7 +1375,7 @@ class FlexMDMModelShared(Model):
                     "a_ins": None,
                     "a_unmask": None,
                 }
-            return {
+        return {
                 "vocab_logits": vocab_logits,
                 "a_ins": None,
                 "b_ins": b_ins,
@@ -1497,7 +1423,7 @@ class FlexMDMAuxModelShared(Model):
         max_rate: float = 100.0,
         rate_head_use_mlp: bool = True,
         schedule_type: Literal[
-            "simplified-kuma", "simplified-kuma2"
+            "simplified-kuma"
         ] = "simplified-kuma",
         inner_autocast: bool = True,
         scalar_fn: Literal["softplus", "exp", "sigmoid"] = "softplus",
