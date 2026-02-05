@@ -11,16 +11,7 @@ from jaxtyping import Bool, Float, Integer
 from torch import Tensor as TT
 from torch.nn.attention import SDPBackend
 from xlm.modules.position import RotaryEmbedding
-import xlm.flags as flags
 
-if hasattr(flags, "DEBUG_FIX_B_UM"):
-    DEBUG_FIX_B_UM = flags.DEBUG_FIX_B_UM
-else:
-    DEBUG_FIX_B_UM = False
-if hasattr(flags, "DEBUG_FIX_SAME_B"):
-    DEBUG_FIX_SAME_B = flags.DEBUG_FIX_SAME_B
-else:
-    DEBUG_FIX_SAME_B = False
 logger = logging.getLogger(__name__)
 
 # DTYPE = get_autocast_dtype()
@@ -853,10 +844,12 @@ class FlexMDMModel(Model):
             "simplified-kuma"
         ] = "simplified-kuma",
         scalar_fn: Literal["softplus", "exp", "sigmoid"] = "softplus",
+        b_um: Optional[float] = None,
     ):
         super().__init__()
         self.padding_idx = padding_idx
         self.mask_idx = mask_idx
+        self.b_um = b_um
         self.embed_tokens = nn.Embedding(
             num_embeddings, d_model, padding_idx=padding_idx
         )
@@ -960,30 +953,17 @@ class FlexMDMModel(Model):
         vocab_logits = self.output_layer(x, c)  # (B, L, V)
         b_ins = self.b_ins_theta_head(x, c)  # (B, L)
         b_unmask = self.b_unmask_theta_head(x, c)  # (B, L)
-        if DEBUG_FIX_B_UM:
-                return {
-                    "vocab_logits": vocab_logits,
-                    "a_ins": None,
-                    "b_ins": b_ins,
-                    "a_unmask": None,
-                    "b_unmask": torch.ones_like(b_unmask),
-                }
-            # for main model we can have same b_ins and b_unmask
-            # if DEBUG_FIX_SAME_B:
-            #    return {
-            #        "vocab_logits": vocab_logits,
-            #        "a_ins": None,
-            #        "b_ins": b_ins,
-            #        "a_unmask": None,
-            #        "b_unmask": b_ins,
-            #    }
+        
+        if self.b_um is not None:
+            b_unmask = torch.full_like(b_unmask, self.b_um)
+        
         return {
-                "vocab_logits": vocab_logits,
-                "a_ins": None,
-                "b_ins": b_ins,
-                "a_unmask": None,
-                "b_unmask": b_unmask,
-            }
+            "vocab_logits": vocab_logits,
+            "a_ins": None,
+            "b_ins": b_ins,
+            "a_unmask": None,
+            "b_unmask": b_unmask,
+        }
 
 
 class FlexMDMAuxModel(Model):
@@ -1019,10 +999,12 @@ class FlexMDMAuxModel(Model):
             "simplified-kuma"
         ] = "simplified-kuma",
         scalar_fn: Literal["softplus", "exp"] = "softplus",
+        b_um: Optional[float] = None,
     ):
         super().__init__()
         self.padding_idx = padding_idx
         self.mask_idx = mask_idx
+        self.b_um = b_um
         self.embed_tokens = nn.Embedding(
             num_embeddings, d_model, padding_idx=padding_idx
         )
@@ -1115,36 +1097,15 @@ class FlexMDMAuxModel(Model):
         b_ins = self.lambda_ins_phi_head(x, c)  # (B, L)
         b_unmask = self.lambda_unmask_phi_head(x, c)  # (B, L)
 
-        if self.schedule_type == "simplified-kuma":
-            # a=1
-            if DEBUG_FIX_B_UM:
-                return {
-                    "b_ins": b_ins,
-                    "b_unmask": torch.ones_like(b_unmask),
-                    "a_ins": None,
-                    "a_unmask": None,
-                }
-            if DEBUG_FIX_SAME_B:
-                return {
-                    "a_ins": None,
-                    "b_ins": b_ins,
-                    "a_unmask": None,
-                    "b_unmask": b_ins,
-                }
-            return {
-                "b_ins": b_ins,
-                "b_unmask": b_unmask,
-                "a_ins": None,
-                "a_unmask": None,
-            }
-        else:
-            # a_ins=a_unmask, b_ins=b_unmask
-            return {
-                "a_ins": b_ins,
-                "b_ins": b_unmask,
-                "a_unmask": b_ins,
-                "b_unmask": b_unmask,
-            }
+        if self.b_um is not None:
+            b_unmask = torch.full_like(b_unmask, self.b_um)
+
+        return {
+            "b_ins": b_ins,
+            "b_unmask": b_unmask,
+            "a_ins": None,
+            "a_unmask": None,
+        }
 
 
 #################################################################################
@@ -1310,12 +1271,14 @@ class FlexMDMModelShared(Model):
             "simplified-kuma"
         ] = "simplified-kuma",
         scalar_fn: Literal["softplus", "exp", "sigmoid"] = "softplus",
+        b_um: Optional[float] = None,
     ):
         super().__init__()
         self.backbone = backbone
         self.d_cond = d_cond or d_model // 2
         self.num_embeddings = num_embeddings
         self.schedule_type = schedule_type
+        self.b_um = b_um
 
         # Output layer for vocab logits
         self.output_layer = DDitFinalLayer(
@@ -1367,21 +1330,16 @@ class FlexMDMModelShared(Model):
         b_ins = self.b_ins_theta_head(hidden_states, conditioning)
         b_unmask = self.b_unmask_theta_head(hidden_states, conditioning)
 
-        if DEBUG_FIX_B_UM:
-                return {
-                    "vocab_logits": vocab_logits,
-                    "b_ins": b_ins,
-                    "b_unmask": torch.ones_like(b_unmask),
-                    "a_ins": None,
-                    "a_unmask": None,
-                }
+        if self.b_um is not None:
+            b_unmask = torch.full_like(b_unmask, self.b_um)
+
         return {
-                "vocab_logits": vocab_logits,
-                "a_ins": None,
-                "b_ins": b_ins,
-                "a_unmask": None,
-                "b_unmask": b_unmask,
-            }
+            "vocab_logits": vocab_logits,
+            "a_ins": None,
+            "b_ins": b_ins,
+            "a_unmask": None,
+            "b_unmask": b_unmask,
+        }
 
     def get_named_params_for_weight_decay(self):
         """Get head parameters that should have weight decay (excludes backbone)."""
@@ -1427,6 +1385,7 @@ class FlexMDMAuxModelShared(Model):
         ] = "simplified-kuma",
         inner_autocast: bool = True,
         scalar_fn: Literal["softplus", "exp", "sigmoid"] = "softplus",
+        b_um: Optional[float] = None,
     ):
         super().__init__()
         self.backbone = backbone
@@ -1435,6 +1394,7 @@ class FlexMDMAuxModelShared(Model):
         self.schedule_type = schedule_type
         self.inner_autocast = inner_autocast
         self.scalar_fn = scalar_fn
+        self.b_um = b_um
 
         # Rate heads (trainable)
         self.lambda_ins_phi_head = ScalarRateHead(
@@ -1490,29 +1450,15 @@ class FlexMDMAuxModelShared(Model):
         b_ins = self.lambda_ins_phi_head(hidden_states, conditioning)
         b_unmask = self.lambda_unmask_phi_head(hidden_states, conditioning)
 
-        if self.schedule_type == "simplified-kuma":
-            if DEBUG_FIX_B_UM:
-                return {
-                    "b_ins": b_ins,
-                    "b_unmask": torch.ones_like(b_unmask),
-                    "a_ins": None,
-                    "a_unmask": None,
-                }
-            return {
-                "b_ins": b_ins,
-                "b_unmask": b_unmask,
-                "a_ins": None,
-                "a_unmask": None,
-            }
+        if self.b_um is not None:
+            b_unmask = torch.full_like(b_unmask, self.b_um)
 
-        else:
-            # For kuma2: a_ins=b_ins, a_unmask=b_unmask (shared)
-            return {
-                "a_ins": b_ins,
-                "b_ins": b_unmask,
-                "a_unmask": b_ins,
-                "b_unmask": b_unmask,
-            }
+        return {
+            "b_ins": b_ins,
+            "b_unmask": b_unmask,
+            "a_ins": None,
+            "a_unmask": None,
+        }
 
     def get_named_params_for_weight_decay(self):
         """

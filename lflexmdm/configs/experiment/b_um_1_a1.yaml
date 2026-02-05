@@ -1,6 +1,10 @@
 # @package _global_
-global_flags:
-  DEBUG_FIX_B_UM: true
+
+model:
+  b_um: 1.0
+
+aux_model:
+  b_um: 1.0
 
 loss:
   regularizer_weight: 1.0
