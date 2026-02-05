@@ -2,6 +2,7 @@ torch>=2.7.0,<2.8.0
 # TODO: xlm-core latest, update to pip
 #git+https://github.com/dhruvdcoder/xlm-core.git@f7a20eae5965a04513079245d60959098c9f0f0a
 #-e /scratch3/workspace/dhruveshpate_umass_edu-idlm/xlm-core
+xlm-core==0.1.3.a0
 hydra-core
 lightning==2.5.2
 fsspec>=2025.3.0 # https://github.com/Lightning-AI/pytorch-lightning/pull/20780
