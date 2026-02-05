@@ -25,7 +25,6 @@ predictor:
 loss:
   _target_: lflexmdm.loss_flexmdm_kuma.LFlexMDMLoss
   regularizer_weight: 1.0
-  use_length_scale: true
 
 datamodule:
   print_batch_fn: lflexmdm.datamodule_flexmdm.print_batch_flexmdm

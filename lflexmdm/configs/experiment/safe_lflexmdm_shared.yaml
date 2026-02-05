@@ -39,7 +39,6 @@ predictor:
 loss:
   _target_: lflexmdm.loss_flexmdm_kuma.LFlexMDMLoss
   regularizer_weight: 1.0
-  use_length_scale: true
 
 global_components:
   noise_schedule:

@@ -61,7 +61,6 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
         phi_loss: bool = True,
         max_length: float = 1.0,
         stop_grad_on_phi: bool = False,
-        use_length_scale: bool = True,
         use_unmask_counts: bool = True,
         reinforce_weight: float = 1.0,
         _use_t: bool = True,  # for a future model, use False
@@ -77,7 +76,6 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
         self.phi_loss = phi_loss
         self.max_length = max_length
         self.stop_grad_on_phi = stop_grad_on_phi
-        self.use_length_scale = use_length_scale
         self.use_unmask_counts = use_unmask_counts
         self.reinforce_weight = reinforce_weight
         self._use_t = _use_t
@@ -190,7 +188,7 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
                 [hazard_ins, hazard_unmask],  # phi
                 [hazard_ins_theta_1, hazard_unmask_theta_1],
                 self.mask_token_id_tensor,
-                lenght_scale=self.max_length if self.use_length_scale else 1.0,
+                lenght_scale=self.max_length,
                 use_unmask_counts=self.use_unmask_counts,
             )
         )
@@ -334,7 +332,7 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
                 ),
                 [hazard_ins_theta_1, hazard_unmask_theta_1],
                 self.mask_token_id_tensor,
-                lenght_scale=self.max_length if self.use_length_scale else 1.0,
+                lenght_scale=self.max_length,
                 use_unmask_counts=self.use_unmask_counts,
                 return_per_token=return_per_token,
             )
@@ -354,7 +352,7 @@ class LFlexMDMLoss(LossFunction[FlexMDMBatch, FlexMDMLossDict]):
                 ),
                 [hazard_ins_theta_2, hazard_unmask_theta_2],
                 self.mask_token_id_tensor,
-                lenght_scale=self.max_length if self.use_length_scale else 1.0,
+                lenght_scale=self.max_length,
                 use_unmask_counts=self.use_unmask_counts,
                 return_per_token=return_per_token,
             )
