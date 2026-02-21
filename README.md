@@ -121,4 +121,8 @@ fi
 xlm job_name=${DATASET}_${MODEL}_${BACKBONE}_${aux_size} job_type=train experiment=${EXPERIMENT} per_device_batch_size=64 trainer_strategy=single_device trainer.devices=1 trainer.num_nodes=1 ++trainer.precision=bf16-mixed compile=False 
 ```
 
+# Acknowledgments
+The code uses [xlm-core](https://github.com/dhruvdcoder/xlm-core) as the rapid experiment framework and builds on [FlexMDM](https://github.com/brianlck/FlexMDM). The code for data pipeline for the graph traversal experiments is from [ILM](https://github.com/dhruvdcoder/ILM) and for the molecule generation experiments is adapted from [GenMol](https://github.com/NVIDIA-Digital-Bio/genmol).
+
 # TODO (add citation)
+
