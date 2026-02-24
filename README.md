@@ -124,5 +124,17 @@ xlm job_name=${DATASET}_${MODEL}_${BACKBONE}_${aux_size} job_type=train experime
 # Acknowledgments
 The code uses [xlm-core](https://github.com/dhruvdcoder/xlm-core) as the rapid experiment framework and builds on [FlexMDM](https://github.com/brianlck/FlexMDM). The code for data pipeline for the graph traversal experiments is from [ILM](https://github.com/dhruvdcoder/ILM) and for the molecule generation experiments is adapted from [GenMol](https://github.com/NVIDIA-Digital-Bio/genmol).
 
-# TODO (add citation)
+# Cite
+Please cite the following paper if you use this implementation.
+```
+@misc{patel2026insertionbasedsequencegeneration,
+      title={Insertion Based Sequence Generation with Learnable Order Dynamics}, 
+      author={Dhruvesh Patel and Benjamin Rozonoyer and Gaurav Pandey and Tahira Naseem and Ramón Fernandez Astudillo and Andrew McCallum},
+      year={2026},
+      eprint={2602.18695},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2602.18695}, 
+}
+```
 
